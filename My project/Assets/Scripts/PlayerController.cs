@@ -90,8 +90,7 @@ public class PlayerController : MonoBehaviour
         targetVisorPos = standVisorPos;
         targetFirePointPos = standFirePointPos;
         
-        Cursor.lockState = CursorLockMode.None;
-        Cursor.visible = true;
+        // Cursor is managed by Crosshair.cs
     }
 
     void Update()

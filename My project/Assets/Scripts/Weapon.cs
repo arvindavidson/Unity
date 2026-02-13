@@ -45,6 +45,14 @@ public class Weapon : MonoBehaviour
         Vector3 targetPoint;
         Vector3 shootDirection = firePoint.forward;
         
+        // Player aims toward crosshair; enemies use their forward direction
+        if (gameObject.CompareTag("Player") && Crosshair.Instance != null && Crosshair.Instance.hasAimPoint)
+        {
+            Vector3 aimTarget = Crosshair.Instance.aimPoint;
+            aimTarget.y = firePoint.position.y; // Keep shot level with fire point
+            shootDirection = (aimTarget - firePoint.position).normalized;
+        }
+        
         if (Physics.Raycast(firePoint.position, shootDirection, out hit, range, hitLayers))
         {
             targetPoint = hit.point;
