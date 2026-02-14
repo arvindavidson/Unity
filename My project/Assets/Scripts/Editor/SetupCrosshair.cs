@@ -42,13 +42,13 @@ public class SetupCrosshair : MonoBehaviour
 
         // 4. Set up RectTransform
         RectTransform rt = crosshairObj.GetComponent<RectTransform>();
-        rt.sizeDelta = new Vector2(20, 20);
+        rt.sizeDelta = new Vector2(60, 60);
         rt.anchorMin = Vector2.zero;
         rt.anchorMax = Vector2.zero;
         rt.pivot = new Vector2(0.5f, 0.5f);
 
         // 5. Create a procedural crosshair texture (small + shape)
-        int texSize = 32;
+        int texSize = 64;
         Texture2D tex = new Texture2D(texSize, texSize, TextureFormat.RGBA32, false);
         tex.filterMode = FilterMode.Point;
         Color transparent = new Color(0, 0, 0, 0);
@@ -60,9 +60,9 @@ public class SetupCrosshair : MonoBehaviour
         for (int i = 0; i < pixels.Length; i++) pixels[i] = transparent;
 
         int center = texSize / 2;
-        int thickness = 1;
-        int gap = 3;  // Gap around center
-        int armLength = 6;
+        int thickness = 2; // Thicker lines
+        int gap = 4;
+        int armLength = 16; // Longer arms
 
         // Draw crosshair arms with outline
         for (int i = gap; i <= armLength + gap; i++)
@@ -96,6 +96,10 @@ public class SetupCrosshair : MonoBehaviour
 
         // Small center dot
         SetPixelSafe(pixels, texSize, center, center, white);
+        SetPixelSafe(pixels, texSize, center+1, center, white);
+        SetPixelSafe(pixels, texSize, center-1, center, white);
+        SetPixelSafe(pixels, texSize, center, center+1, white);
+        SetPixelSafe(pixels, texSize, center, center-1, white);
 
         tex.SetPixels(pixels);
         tex.Apply();
@@ -109,7 +113,7 @@ public class SetupCrosshair : MonoBehaviour
 
         // 7. Add the Crosshair script
         Crosshair crosshairScript = crosshairObj.AddComponent<Crosshair>();
-        crosshairScript.crosshairSize = 24f;
+        crosshairScript.crosshairSize = 48f;
         crosshairScript.crosshairColor = Color.white;
 
         EditorUtility.SetDirty(crosshairObj);

@@ -12,7 +12,8 @@ public class GameManager : MonoBehaviour
     public GameObject winPanel;
 
     private bool isGameOver;
-    private bool hasTreasure;
+    private int treasuresCollected;
+    private int totalTreasures;
 
     void Awake()
     {
@@ -27,6 +28,20 @@ public class GameManager : MonoBehaviour
         Time.timeScale = 1f;
         gameOverPanel.SetActive(false);
         winPanel.SetActive(false);
+        
+        // Find all treasures to set the goal
+        var treasures = GameObject.FindGameObjectsWithTag("Treasure");
+        totalTreasures = treasures.Length;
+        // If tag isn't used, look for objects with "Treasure" in name as fallback
+        if (totalTreasures == 0)
+        {
+             var allObjs = Object.FindObjectsByType<Transform>(FindObjectsSortMode.None);
+             foreach (var t in allObjs)
+             {
+                 if (t.name.Contains("Treasure")) totalTreasures++;
+             }
+        }
+        
         UpdateObjectiveText();
     }
 
@@ -37,17 +52,28 @@ public class GameManager : MonoBehaviour
 
     public void CollectTreasure()
     {
-        hasTreasure = true;
+        treasuresCollected++;
         UpdateObjectiveText();
-        WinGame();
+        
+        if (treasuresCollected >= totalTreasures && totalTreasures > 0)
+        {
+            WinGame();
+        }
     }
 
     void UpdateObjectiveText()
     {
-        if (hasTreasure)
-            objectiveText.text = "Objective: Complete!";
+        if (totalTreasures > 0)
+        {
+            if (treasuresCollected >= totalTreasures)
+                 objectiveText.text = $"Objective: Complete! ({treasuresCollected}/{totalTreasures})";
+            else
+                 objectiveText.text = $"Objective: Find Treasures ({treasuresCollected}/{totalTreasures})";
+        }
         else
+        {
             objectiveText.text = "Objective: Find Treasure";
+        }
     }
 
     public void GameOver()
@@ -56,6 +82,10 @@ public class GameManager : MonoBehaviour
         isGameOver = true;
         gameOverPanel.SetActive(true);
         Time.timeScale = 0f;
+        
+        // Unlock cursor for UI
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
     }
 
     public void WinGame()
@@ -64,11 +94,23 @@ public class GameManager : MonoBehaviour
         isGameOver = true;
         winPanel.SetActive(true);
         Time.timeScale = 0f;
+        
+        // Unlock cursor for UI
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
     }
 
     public void RestartGame()
     {
         Time.timeScale = 1f;
         SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+    }
+
+    public void QuitGame()
+    {
+        Application.Quit();
+#if UNITY_EDITOR
+        UnityEditor.EditorApplication.isPlaying = false;
+#endif
     }
 }

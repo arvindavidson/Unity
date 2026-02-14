@@ -48,6 +48,12 @@ public class EnemyAI : MonoBehaviour
     private float corpseCheckInterval = 1f; // Check for corpses every second
     private float corpseCheckTimer;
 
+    [Header("Stealth")]
+    public float alertLevel; // 0 to 100
+    public float detectionRate = 20f; // Base detection per second
+    public float decayRate = 10f; // Decay per second when hidden
+    public EnemyStatusUI statusUI;
+
     public enum State { Idle, Patrol, Chase, Attack, Investigate }
     public State currentState;
 
@@ -74,6 +80,11 @@ public class EnemyAI : MonoBehaviour
         
         weapon = GetComponent<Weapon>();
         wallLayer = LayerMask.GetMask("Wall", "Default");
+        
+        if (statusUI == null) 
+        {
+            statusUI = GetComponentInChildren<EnemyStatusUI>();
+        }
         
         // Remove any null entries first
         if (patrolPoints != null)
@@ -114,6 +125,10 @@ public class EnemyAI : MonoBehaviour
         
         // Track LOS every frame
         hadLOSThisFrame = HasLineOfSight();
+        
+        // Update Alert Level Logic
+        UpdateStealth();
+        
         if (hadLOSThisFrame)
         {
             lastKnownPlayerPosition = player.position;
@@ -142,11 +157,11 @@ public class EnemyAI : MonoBehaviour
         switch (currentState)
         {
             case State.Idle:
-                DetectPlayer();
+                // DetectPlayer(); // Handled by UpdateStealth now
                 break;
             case State.Patrol:
                 Patrol();
-                DetectPlayer();
+                // DetectPlayer(); // Handled by UpdateStealth now
                 break;
             case State.Chase:
                 Chase();
@@ -157,6 +172,107 @@ public class EnemyAI : MonoBehaviour
             case State.Investigate:
                 Investigate();
                 break;
+        }
+    }
+
+    void UpdateStealth()
+    {
+        bool seeingPlayer = CanSeePlayer();
+        bool hearingPlayer = CanHearPlayer();
+        bool detected = seeingPlayer || hearingPlayer;
+
+        if (currentState == State.Chase || currentState == State.Attack)
+        {
+            alertLevel = 100f;
+        }
+        else
+        {
+            if (seeingPlayer)
+            {
+                // Visual Detection - Uncapped, distance based
+                float dist = Vector3.Distance(transform.position, player.position);
+                float rateMultiplier = Mathf.Clamp(15f / (dist + 1f), 0.5f, 5f); // Closer = Faster
+                alertLevel += detectionRate * rateMultiplier * Time.deltaTime;
+            }
+            else if (hearingPlayer)
+            {
+                // Audio Detection - Capped at 50% (Suspicious) unless it's a gunshot
+                float noise = (playerController != null) ? playerController.currentNoiseLevel : 0f;
+                float dist = Vector3.Distance(transform.position, player.position);
+                
+                if (noise > 15f) // Gunshot / Loud noise
+                {
+                    alertLevel += detectionRate * 10f * Time.deltaTime; // Instant alert
+                }
+                else
+                {
+                    // Footsteps: Cap at 50% (Suspicious)
+                    if (alertLevel < 50f)
+                    {
+                        // Scale based on noise type (Run vs Walk) and Distance
+                        // Sprint (10) vs Walk (5)
+                        float noiseMultiplier = (noise >= 10f) ? 3.0f : 1.0f; 
+                        
+                        // Closer = Much louder
+                        // At 1m: 10/2 = 5x boost. At 10m: 10/11 = ~0.9x.
+                        float proximityMultiplier = Mathf.Clamp(10f / (dist + 1f), 0.5f, 5f);
+                        
+                        alertLevel += detectionRate * noiseMultiplier * proximityMultiplier * Time.deltaTime;
+                    }
+                }
+            }
+            else
+            {
+                // Decay
+                alertLevel -= decayRate * Time.deltaTime;
+            }
+        }
+
+        alertLevel = Mathf.Clamp(alertLevel, 0f, 100f);
+
+        // State Transitions based on Alert Level
+        if (currentState != State.Chase && currentState != State.Attack)
+        {
+            if (alertLevel >= 100f)
+            {
+                // Full Alert!
+                currentState = State.Chase;
+                CallForHelp(player.position);
+            }
+            else if (alertLevel >= 50f)
+            {
+                // Suspicious - Investigate
+                if (currentState != State.Investigate)
+                {
+                    StartInvestigation(player.position);
+                }
+                else
+                {
+                    // Already investigating, update position if we see them
+                    // But don't snap to them instantly, just look
+                    investigatePosition = player.position;
+                    agent.SetDestination(investigatePosition);
+                    
+                    // Look at player
+                    Vector3 lookDir = player.position - transform.position;
+                    lookDir.y = 0;
+                    if (lookDir != Vector3.zero)
+                    {
+                        Quaternion targetRot = Quaternion.LookRotation(lookDir);
+                        transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRot, 120f * Time.deltaTime);
+                    }
+                }
+            }
+            // If < 50, we might return to patrol? 
+            // The Investigate state handles return to patrol on timer.
+            // But if we were investigating and level drops below 50 (e.g. player hid), maybe strictly return?
+            // Let's stick to the timer logic in Investigate() for now to avoid state flickering.
+        }
+        
+        // Update UI
+        if (statusUI != null)
+        {
+            statusUI.UpdateStatus(alertLevel, currentState == State.Chase || currentState == State.Attack, seeingPlayer);
         }
     }
 
@@ -436,10 +552,19 @@ public class EnemyAI : MonoBehaviour
         if (player == null) return false;
         
         Vector3 eyePos = transform.position + Vector3.up * 1.5f;
-        Vector3 targetPos = player.position + Vector3.up * 1.0f;
+        
+        // Target the player's actual center (adjusts for crouching/crawling)
+        Vector3 targetPos;
+        var col = player.GetComponent<Collider>();
+        if (col != null)
+            targetPos = col.bounds.center;
+        else
+            targetPos = player.position + Vector3.up * 1.0f; // Fallback
+            
         Vector3 direction = targetPos - eyePos;
         float distance = direction.magnitude;
         
+        // Check for walls
         if (Physics.Raycast(eyePos, direction.normalized, out RaycastHit hit, distance, wallLayer))
         {
             return false;
@@ -451,7 +576,18 @@ public class EnemyAI : MonoBehaviour
     bool CanSeePlayer()
     {
         float dist = Vector3.Distance(transform.position, player.position);
-        if (dist > viewDistance) return false;
+        
+        // Stealth modifiers: Harder to see crouching/crawling players at range
+        float effectiveViewDistance = viewDistance;
+        if (playerController != null)
+        {
+            if (playerController.currentStance == PlayerController.Stance.Crouching) 
+                effectiveViewDistance *= 0.75f; // 25% harder to see
+            else if (playerController.currentStance == PlayerController.Stance.Crawling) 
+                effectiveViewDistance *= 0.5f;  // 50% harder to see
+        }
+        
+        if (dist > effectiveViewDistance) return false;
         
         Vector3 directionToPlayer = (player.position - transform.position).normalized;
         float angle = Vector3.Angle(transform.forward, directionToPlayer);
